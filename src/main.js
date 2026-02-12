@@ -36,7 +36,7 @@ class Ripple {
   }
 
   get lifespan() {
-    if (this.type === 'wake') return RIPPLE_LIFESPAN * 0.5;
+    if (this.type === 'wake') return 1.2; // Die fast - stay as V shape
     return RIPPLE_LIFESPAN;
   }
 
@@ -46,20 +46,20 @@ class Ripple {
 
   get strength() {
     const base = 1 - (this.age / this.lifespan);
-    if (this.type === 'wake') return base * 0.15;
+    if (this.type === 'wake') return base * 0.2;
     if (this.type === 'micro') return base * 0.25;
     return base;
   }
 
   get speed() {
-    if (this.type === 'wake') return RIPPLE_SPEED * 0.6;
+    if (this.type === 'wake') return RIPPLE_SPEED * 0.35; // Expand slow - stay tight
     return RIPPLE_SPEED;
   }
 
   getInfluence(px, py) {
     const dist = Math.sqrt((px - this.x) ** 2 + (py - this.y) ** 2);
     const radius = this.age * this.speed;
-    const ringWidth = this.type === 'wake' ? 60 : (120 + this.age * 50);
+    const ringWidth = this.type === 'wake' ? 35 : (120 + this.age * 50); // Narrow wake rings
     
     const ringDist = Math.abs(dist - radius);
     if (ringDist > ringWidth) return 0;
