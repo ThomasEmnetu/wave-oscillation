@@ -23,6 +23,14 @@ let waterHeight = []; // displacement height
 let cursorTrail = [];
 const MAX_TRAIL = 20;
 
+// Ambient life systems
+let windAngle = 0;
+let windStrength = 0;
+let windTargetAngle = Math.random() * Math.PI * 2;
+let windTargetStrength = 0.3 + Math.random() * 0.5;
+let lastMicroDisturbance = 0;
+let breathPhase = 0;
+
 // Ripple class
 class Ripple {
   constructor(x, y) {
@@ -30,6 +38,7 @@ class Ripple {
     this.y = y;
     this.birth = time;
     this.radius = 0;
+    this.microRipple = false; // Set to true for subtle ambient ripples
   }
 
   get age() {
@@ -42,7 +51,9 @@ class Ripple {
 
   get strength() {
     // Fade out over lifetime
-    return 1 - (this.age / RIPPLE_LIFESPAN);
+    const base = 1 - (this.age / RIPPLE_LIFESPAN);
+    // Micro ripples are smaller/subtler
+    return this.microRipple ? base * 0.3 : base;
   }
 
   getInfluence(px, py) {
@@ -124,6 +135,66 @@ function render() {
   
   mouse.prevX = mouse.x;
   mouse.prevY = mouse.y;
+  
+  // === AMBIENT LIFE SYSTEMS ===
+  
+  // Breathing swell - slow undulation across entire surface
+  breathPhase += 0.008;
+  
+  // Wind slowly shifts direction (like real weather)
+  windAngle += (windTargetAngle - windAngle) * 0.002;
+  windStrength += (windTargetStrength - windStrength) * 0.005;
+  
+  // Occasionally shift wind target
+  if (Math.random() < 0.001) {
+    windTargetAngle = Math.random() * Math.PI * 2;
+    windTargetStrength = 0.2 + Math.random() * 0.6;
+  }
+  
+  // Apply gentle wind current to all water
+  const windVx = Math.cos(windAngle) * windStrength * 0.02;
+  const windVy = Math.sin(windAngle) * windStrength * 0.02;
+  
+  for (let i = 0; i < waterVelocityX.length; i++) {
+    waterVelocityX[i] += windVx;
+    waterVelocityY[i] += windVy;
+  }
+  
+  // Random micro-disturbances (insects landing, leaves falling, small fish)
+  if (time - lastMicroDisturbance > 0.3 + Math.random() * 2) {
+    lastMicroDisturbance = time;
+    
+    // Random position
+    const disturbX = Math.random() * width;
+    const disturbY = Math.random() * height;
+    const disturbCol = Math.floor(disturbX / CELL_SIZE);
+    const disturbRow = Math.floor(disturbY / CELL_SIZE);
+    const disturbStrength = 0.5 + Math.random() * 2;
+    const disturbRadius = 2 + Math.floor(Math.random() * 3);
+    
+    // Create small localized disturbance
+    for (let dy = -disturbRadius; dy <= disturbRadius; dy++) {
+      for (let dx = -disturbRadius; dx <= disturbRadius; dx++) {
+        const c = disturbCol + dx;
+        const r = disturbRow + dy;
+        if (c < 0 || c >= cols || r < 0 || r >= rows) continue;
+        
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > disturbRadius) continue;
+        
+        const idx = r * cols + c;
+        const influence = (1 - dist / disturbRadius) * disturbStrength;
+        waterHeight[idx] += influence;
+      }
+    }
+    
+    // 20% chance to spawn a tiny ripple (like a water strider)
+    if (Math.random() < 0.2) {
+      ripples.push(new Ripple(disturbX, disturbY));
+      // Make it a smaller, subtler ripple by reducing its effective strength
+      ripples[ripples.length - 1].microRipple = true;
+    }
+  }
   
   // Water physics simulation
   // Apply forces from cursor trail (drag through water)
@@ -214,11 +285,23 @@ function render() {
       const x = baseX + offsetX;
       const y = baseY + offsetY;
       
-      // Base ambient wave (subtle)
+      // Complex ambient waves - multiple frequencies for organic feel
       const nx = col / cols;
       const ny = row / rows;
-      let wave = Math.sin(nx * 4 + time * 0.5) * 0.08 + 
-                 Math.sin(ny * 3 + time * 0.3) * 0.08;
+      
+      // Breathing swell - long slow waves
+      const breathWave = Math.sin(breathPhase + nx * 2 + ny * 1.5) * 0.06;
+      
+      // Wind-driven ripples - direction follows wind
+      const windWaveX = Math.sin(nx * 8 + time * windStrength * 2 + windAngle) * 0.04 * windStrength;
+      const windWaveY = Math.sin(ny * 6 + time * windStrength * 1.5 + windAngle * 0.7) * 0.04 * windStrength;
+      
+      // Organic noise-like pattern (pseudo-perlin using multiple sine waves)
+      const organic1 = Math.sin(nx * 12.7 + ny * 4.3 + time * 0.7) * 0.03;
+      const organic2 = Math.sin(nx * 7.1 - ny * 9.2 + time * 0.4) * 0.025;
+      const organic3 = Math.sin(nx * 3.3 + ny * 5.7 - time * 0.55) * 0.02;
+      
+      let wave = breathWave + windWaveX + windWaveY + organic1 + organic2 + organic3;
       
       // Add water height to wave
       wave += wh * 0.15;
