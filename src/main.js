@@ -4,7 +4,9 @@ const ctx = canvas.getContext('2d');
 // Config
 const CELL_SIZE = 12;
 const CHARS = ' .·:∴∷⁖⁘#@';
-const MAX_RIPPLES = 20;
+const MAX_CLICK_RIPPLES = 15;
+const MAX_WAKE_RIPPLES = 12;
+const MAX_MICRO_RIPPLES = 5;
 const RIPPLE_SPEED = 280;
 const RIPPLE_LIFESPAN = 6;
 
@@ -88,8 +90,22 @@ function resize() {
 function addRipple(x, y, type = 'normal') {
   ripples.push(new Ripple(x, y, type));
   
-  if (ripples.length > MAX_RIPPLES) {
-    ripples.shift();
+  // Enforce separate limits for each ripple type
+  // This prevents wake ripples from pushing out click ripples
+  const counts = { normal: 0, wake: 0, micro: 0 };
+  const limits = { normal: MAX_CLICK_RIPPLES, wake: MAX_WAKE_RIPPLES, micro: MAX_MICRO_RIPPLES };
+  
+  // Count ripples by type
+  for (const r of ripples) {
+    counts[r.type]++;
+  }
+  
+  // If over limit for this type, remove oldest of same type
+  if (counts[type] > limits[type]) {
+    const idx = ripples.findIndex(r => r.type === type);
+    if (idx !== -1) {
+      ripples.splice(idx, 1);
+    }
   }
 }
 
