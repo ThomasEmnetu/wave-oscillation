@@ -4,7 +4,7 @@ const ctx = canvas.getContext('2d');
 // Config
 const CELL_SIZE = 12;
 const CHARS = ' .·:∴∷⁖⁘#@';
-const MAX_RIPPLES = 50;
+const MAX_RIPPLES = 70;
 const RIPPLE_SPEED = 280;
 const RIPPLE_LIFESPAN = 6;
 const WAKE_ANGLE = 0.33; // ~19 degrees (Kelvin wake angle)
@@ -46,7 +46,7 @@ class Ripple {
 
   get strength() {
     const base = 1 - (this.age / this.lifespan);
-    if (this.type === 'wake') return base * 0.2;
+    if (this.type === 'wake') return base * 0.14; // Slightly lower - more ripples now
     if (this.type === 'micro') return base * 0.25;
     return base;
   }
@@ -106,7 +106,7 @@ function render() {
   time += 0.016;
   breathPhase += 0.006;
   
-  // === V-WAKE (Kelvin Wake) - simple circular ripples at V positions ===
+  // === V-WAKE (Kelvin Wake) - multiple ripples along V arms ===
   if (mouse.x > 0 && mouse.prevX > 0) {
     const dx = mouse.x - mouse.prevX;
     const dy = mouse.y - mouse.prevY;
@@ -114,26 +114,32 @@ function render() {
     
     wakeDistance += dist;
     
-    // Spawn wake ripples every ~40 pixels
-    if (wakeDistance > 40 && dist > 2) {
+    // Spawn wake ripples every ~35 pixels
+    if (wakeDistance > 35 && dist > 2) {
       wakeDistance = 0;
       
       // Direction cursor is moving
       const moveAngle = Math.atan2(dy, dx);
       
-      // Spawn ripples BEHIND cursor at V angles
-      // Left arm - behind and to the left
+      // Spawn multiple ripples along each V arm to create parallel lines
       const leftAngle = moveAngle + Math.PI - WAKE_ANGLE;
-      const leftX = mouse.x + Math.cos(leftAngle) * 20;
-      const leftY = mouse.y + Math.sin(leftAngle) * 20;
-      
-      // Right arm - behind and to the right
       const rightAngle = moveAngle + Math.PI + WAKE_ANGLE;
-      const rightX = mouse.x + Math.cos(rightAngle) * 20;
-      const rightY = mouse.y + Math.sin(rightAngle) * 20;
       
-      addRipple(leftX, leftY, 'wake');
-      addRipple(rightX, rightY, 'wake');
+      // 3 ripples per arm at increasing distances
+      for (let i = 0; i < 3; i++) {
+        const armDist = 15 + i * 18;
+        
+        addRipple(
+          mouse.x + Math.cos(leftAngle) * armDist,
+          mouse.y + Math.sin(leftAngle) * armDist,
+          'wake'
+        );
+        addRipple(
+          mouse.x + Math.cos(rightAngle) * armDist,
+          mouse.y + Math.sin(rightAngle) * armDist,
+          'wake'
+        );
+      }
     }
   }
   mouse.prevX = mouse.x;
