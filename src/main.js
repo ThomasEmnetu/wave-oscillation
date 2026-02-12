@@ -13,36 +13,53 @@ let width, height, cols, rows;
 let ripples = [];
 let time = 0;
 
+// Cursor state - for gaze and wake effects
+let mouse = { x: -1000, y: -1000, prevX: -1000, prevY: -1000 };
+let lastWakeRipple = 0;
+let wakeDistance = 0; // accumulated distance traveled
+
 // Ambient life - subtle background motion
 let breathPhase = 0;
 let lastMicroRipple = 0;
 
 // Ripple class
 class Ripple {
-  constructor(x, y, micro = false) {
+  constructor(x, y, type = 'normal') {
     this.x = x;
     this.y = y;
     this.birth = time;
-    this.micro = micro;
+    this.type = type; // 'normal', 'micro', or 'wake'
   }
 
   get age() {
     return time - this.birth;
   }
 
+  get lifespan() {
+    // Wake ripples die faster
+    return this.type === 'wake' ? RIPPLE_LIFESPAN * 0.4 : RIPPLE_LIFESPAN;
+  }
+
   get alive() {
-    return this.age < RIPPLE_LIFESPAN;
+    return this.age < this.lifespan;
   }
 
   get strength() {
-    const base = 1 - (this.age / RIPPLE_LIFESPAN);
-    return this.micro ? base * 0.25 : base;
+    const base = 1 - (this.age / this.lifespan);
+    if (this.type === 'wake') return base * 0.12; // Very subtle
+    if (this.type === 'micro') return base * 0.25;
+    return base;
+  }
+
+  get speed() {
+    // Wake ripples spread slower and smaller
+    return this.type === 'wake' ? RIPPLE_SPEED * 0.5 : RIPPLE_SPEED;
   }
 
   getInfluence(px, py) {
     const dist = Math.sqrt((px - this.x) ** 2 + (py - this.y) ** 2);
-    const radius = this.age * RIPPLE_SPEED;
-    const ringWidth = 120 + this.age * 50;
+    const radius = this.age * this.speed;
+    const ringWidth = this.type === 'wake' ? 60 : (120 + this.age * 50);
     
     const ringDist = Math.abs(dist - radius);
     if (ringDist > ringWidth) return 0;
@@ -68,8 +85,8 @@ function resize() {
   rows = Math.ceil(height / CELL_SIZE);
 }
 
-function addRipple(x, y, micro = false) {
-  ripples.push(new Ripple(x, y, micro));
+function addRipple(x, y, type = 'normal') {
+  ripples.push(new Ripple(x, y, type));
   
   if (ripples.length > MAX_RIPPLES) {
     ripples.shift();
@@ -82,12 +99,32 @@ function render() {
   // Slow breathing phase
   breathPhase += 0.006;
   
+  // === CURSOR WAKE EFFECT ===
+  // When cursor moves, accumulate distance and spawn tiny wake ripples
+  if (mouse.x > 0 && mouse.prevX > 0) {
+    const dx = mouse.x - mouse.prevX;
+    const dy = mouse.y - mouse.prevY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    wakeDistance += dist;
+    
+    // Spawn wake ripple every ~40 pixels of movement
+    if (wakeDistance > 40) {
+      wakeDistance = 0;
+      // Spawn slightly behind cursor to create trailing wake
+      const behindX = mouse.x - dx * 0.5;
+      const behindY = mouse.y - dy * 0.5;
+      addRipple(behindX, behindY, 'wake');
+    }
+  }
+  mouse.prevX = mouse.x;
+  mouse.prevY = mouse.y;
+  
   // Occasional micro-ripples (insects, fish, rain drops)
   if (time - lastMicroRipple > 1.5 + Math.random() * 4) {
     lastMicroRipple = time;
     const rx = Math.random() * width;
     const ry = Math.random() * height;
-    addRipple(rx, ry, true);
+    addRipple(rx, ry, 'micro');
   }
   
   // Clean up dead ripples
@@ -138,6 +175,18 @@ function render() {
       
       wave += rippleSum;
       
+      // === GAZE FOCUS EFFECT ===
+      // Soft luminosity increase near cursor - like light focusing where you look
+      const cursorDist = Math.sqrt((x - mouse.x) ** 2 + (y - mouse.y) ** 2);
+      const gazeRadius = 120;
+      let gazeFocus = 0;
+      if (cursorDist < gazeRadius) {
+        // Soft falloff
+        gazeFocus = (1 - cursorDist / gazeRadius) ** 2;
+        // Add subtle shimmer near cursor
+        wave += Math.sin(time * 3 + cursorDist * 0.1) * gazeFocus * 0.08;
+      }
+      
       // Intensity for color
       const rawIntensity = (wave + 1) / 2;
       const intensity = Math.min(1, Math.max(0, rawIntensity));
@@ -173,6 +222,12 @@ function render() {
         light = 45 + intensity * 55;
       }
       
+      // Gaze focus adds subtle brightness (like light refracting where you look)
+      if (gazeFocus > 0) {
+        light = Math.min(100, light + gazeFocus * 15);
+        sat = Math.max(0, sat - gazeFocus * 10);
+      }
+      
       const alpha = 0.4 + intensity * 0.6;
 
       ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
@@ -190,6 +245,16 @@ document.addEventListener('click', e => {
   addRipple(e.clientX, e.clientY);
 });
 
+document.addEventListener('mousemove', e => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+
+document.addEventListener('mouseleave', () => {
+  mouse.x = -1000;
+  mouse.y = -1000;
+});
+
 // Touch support
 document.addEventListener('touchstart', e => {
   e.preventDefault();
@@ -197,6 +262,18 @@ document.addEventListener('touchstart', e => {
     addRipple(touch.clientX, touch.clientY);
   }
 }, { passive: false });
+
+document.addEventListener('touchmove', e => {
+  if (e.touches.length > 0) {
+    mouse.x = e.touches[0].clientX;
+    mouse.y = e.touches[0].clientY;
+  }
+});
+
+document.addEventListener('touchend', () => {
+  mouse.x = -1000;
+  mouse.y = -1000;
+});
 
 // Init
 resize();
