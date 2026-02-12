@@ -4,14 +4,16 @@ const ctx = canvas.getContext('2d');
 // Config
 const CELL_SIZE = 12;
 const CHARS = ' .·:∴∷⁖⁘#@';
-const MAX_RIPPLES = 50; // Single unified pool - all ripples interact
+const MAX_RIPPLES = 50;
+const MAX_WAKE_WAVES = 30;
 const RIPPLE_SPEED = 280;
 const RIPPLE_LIFESPAN = 6;
-const WAKE_ANGLE = 0.35; // ~20 degrees in radians (Kelvin wake angle)
+const WAKE_ANGLE = 0.33; // ~19 degrees (Kelvin wake angle)
 
 // State
 let width, height, cols, rows;
 let ripples = [];
+let wakeWaves = []; // Separate array for directional wake waves
 let time = 0;
 
 // Cursor state - for gaze and wake effects
@@ -23,13 +25,13 @@ let wakeDistance = 0; // accumulated distance traveled
 let breathPhase = 0;
 let lastMicroRipple = 0;
 
-// Ripple class
+// Ripple class - circular waves (for clicks and ambient)
 class Ripple {
   constructor(x, y, type = 'normal') {
     this.x = x;
     this.y = y;
     this.birth = time;
-    this.type = type; // 'normal', 'micro', or 'wake'
+    this.type = type; // 'normal' or 'micro'
   }
 
   get age() {
@@ -37,8 +39,7 @@ class Ripple {
   }
 
   get lifespan() {
-    // Wake ripples die faster
-    return this.type === 'wake' ? RIPPLE_LIFESPAN * 0.4 : RIPPLE_LIFESPAN;
+    return RIPPLE_LIFESPAN;
   }
 
   get alive() {
@@ -47,20 +48,14 @@ class Ripple {
 
   get strength() {
     const base = 1 - (this.age / this.lifespan);
-    if (this.type === 'wake') return base * 0.18; // Subtle but visible V-wake
     if (this.type === 'micro') return base * 0.25;
     return base;
   }
 
-  get speed() {
-    // Wake ripples spread outward from V pattern
-    return this.type === 'wake' ? RIPPLE_SPEED * 0.6 : RIPPLE_SPEED;
-  }
-
   getInfluence(px, py) {
     const dist = Math.sqrt((px - this.x) ** 2 + (py - this.y) ** 2);
-    const radius = this.age * this.speed;
-    const ringWidth = this.type === 'wake' ? 50 : (120 + this.age * 50);
+    const radius = this.age * RIPPLE_SPEED;
+    const ringWidth = 120 + this.age * 50;
     
     const ringDist = Math.abs(dist - radius);
     if (ringDist > ringWidth) return 0;
@@ -74,6 +69,73 @@ class Ripple {
     const falloff = 1 - (ringDist / ringWidth);
     
     return wave * falloff * this.strength;
+  }
+}
+
+// WakeWave class - directional linear wave fronts (Kelvin wake)
+// These travel in a specific direction and maintain their V-shape
+class WakeWave {
+  constructor(x, y, direction) {
+    this.x = x;           // Origin point
+    this.y = y;
+    this.direction = direction; // Angle the wave travels outward
+    this.birth = time;
+  }
+
+  get age() {
+    return time - this.birth;
+  }
+
+  get lifespan() {
+    return RIPPLE_LIFESPAN * 0.7;
+  }
+
+  get alive() {
+    return this.age < this.lifespan;
+  }
+
+  get strength() {
+    return (1 - this.age / this.lifespan) * 0.22;
+  }
+
+  getInfluence(px, py) {
+    // Vector from origin to point
+    const toPointX = px - this.x;
+    const toPointY = py - this.y;
+    
+    // How far along the wave direction is this point?
+    const dirX = Math.cos(this.direction);
+    const dirY = Math.sin(this.direction);
+    const alongDist = toPointX * dirX + toPointY * dirY;
+    
+    // Only affect points in the direction the wave is traveling (not behind)
+    if (alongDist < 0) return 0;
+    
+    // How far perpendicular to wave direction? (along the wave front line)
+    const perpDist = Math.abs(toPointX * (-dirY) + toPointY * dirX);
+    
+    // Wave front width (how long the line is) - grows over time
+    const frontWidth = 60 + this.age * 80;
+    if (perpDist > frontWidth) return 0;
+    
+    // Where is the wave front now? It travels outward over time
+    const waveFrontPos = this.age * RIPPLE_SPEED * 0.5;
+    
+    // How far is this point from the wave front?
+    const distFromFront = alongDist - waveFrontPos;
+    
+    // Wave ring thickness
+    const ringWidth = 50 + this.age * 20;
+    if (Math.abs(distFromFront) > ringWidth) return 0;
+    
+    // Wave oscillation pattern
+    const wave = Math.sin(distFromFront * 0.12);
+    
+    // Falloff based on distance from wave front and from center of line
+    const frontFalloff = 1 - Math.abs(distFromFront) / ringWidth;
+    const sideFalloff = 1 - (perpDist / frontWidth) * 0.5; // Gentler side falloff
+    
+    return wave * frontFalloff * sideFalloff * this.strength;
   }
 }
 
@@ -134,21 +196,19 @@ function render() {
       // Calculate direction angle of movement
       const moveAngle = Math.atan2(dy, dx);
       
-      // Spawn TWO ripples at angles to create V pattern
-      // Left wake arm
-      const leftAngle = moveAngle + Math.PI - WAKE_ANGLE;
-      const leftDist = 15 + speed * 0.5;
-      const leftX = mouse.x + Math.cos(leftAngle) * leftDist;
-      const leftY = mouse.y + Math.sin(leftAngle) * leftDist;
+      // Create directional wake waves that travel outward at V angles
+      // Left wake arm - wave travels perpendicular to the arm, outward-left
+      const leftWaveDir = moveAngle - Math.PI/2 - WAKE_ANGLE;
+      wakeWaves.push(new WakeWave(mouse.x, mouse.y, leftWaveDir));
       
-      // Right wake arm  
-      const rightAngle = moveAngle + Math.PI + WAKE_ANGLE;
-      const rightDist = 15 + speed * 0.5;
-      const rightX = mouse.x + Math.cos(rightAngle) * rightDist;
-      const rightY = mouse.y + Math.sin(rightAngle) * rightDist;
+      // Right wake arm - wave travels perpendicular to the arm, outward-right
+      const rightWaveDir = moveAngle + Math.PI/2 + WAKE_ANGLE;
+      wakeWaves.push(new WakeWave(mouse.x, mouse.y, rightWaveDir));
       
-      addRipple(leftX, leftY, 'wake');
-      addRipple(rightX, rightY, 'wake');
+      // Limit wake waves
+      while (wakeWaves.length > MAX_WAKE_WAVES) {
+        wakeWaves.shift();
+      }
     }
   }
   mouse.prevX = mouse.x;
@@ -162,8 +222,9 @@ function render() {
     addRipple(rx, ry, 'micro');
   }
   
-  // Clean up dead ripples
+  // Clean up dead ripples and wake waves
   ripples = ripples.filter(r => r.alive);
+  wakeWaves = wakeWaves.filter(w => w.alive);
   
   // Clear
   ctx.fillStyle = '#2858a8';
@@ -190,7 +251,7 @@ function render() {
       
       let wave = breathWave + organic1 + organic2;
       
-      // Ripple influences - this is the main show
+      // Ripple influences - circular waves from clicks
       let rippleSum = 0;
       let rippleCount = 0;
       
@@ -202,13 +263,23 @@ function render() {
         }
       }
       
-      // Interference boost
-      if (rippleCount > 1) {
-        const interferenceBoost = 1 + (rippleCount - 1) * 0.4;
-        rippleSum *= interferenceBoost;
+      // Wake wave influences - directional V-pattern from cursor
+      let wakeSum = 0;
+      for (const wake of wakeWaves) {
+        wakeSum += wake.getInfluence(x, y);
       }
       
-      wave += rippleSum;
+      // Combine all wave influences
+      const totalWaveCount = rippleCount + (wakeSum !== 0 ? 1 : 0);
+      
+      // Interference boost
+      if (totalWaveCount > 1) {
+        const interferenceBoost = 1 + (totalWaveCount - 1) * 0.3;
+        rippleSum *= interferenceBoost;
+        wakeSum *= interferenceBoost;
+      }
+      
+      wave += rippleSum + wakeSum;
       
       // === GAZE FOCUS EFFECT ===
       // Soft luminosity increase near cursor - like light focusing where you look
@@ -231,9 +302,9 @@ function render() {
       const charIdx = Math.floor(charValue * (CHARS.length - 1));
       const char = CHARS[Math.min(charIdx, CHARS.length - 1)];
       
-      // Color - interference zones
-      const isInterference = rippleCount > 1;
-      const interferenceStrength = Math.abs(rippleSum);
+      // Color - interference zones (includes wake waves)
+      const isInterference = totalWaveCount > 1;
+      const interferenceStrength = Math.abs(rippleSum + wakeSum);
       
       let hue, sat, light;
       
