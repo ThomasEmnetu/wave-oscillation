@@ -4,11 +4,10 @@ const ctx = canvas.getContext('2d');
 // Config
 const CELL_SIZE = 12;
 const CHARS = ' .·:∴∷⁖⁘#@';
-const MAX_CLICK_RIPPLES = 15;
-const MAX_WAKE_RIPPLES = 12;
-const MAX_MICRO_RIPPLES = 5;
+const MAX_RIPPLES = 50; // Single unified pool - all ripples interact
 const RIPPLE_SPEED = 280;
 const RIPPLE_LIFESPAN = 6;
+const WAKE_ANGLE = 0.35; // ~20 degrees in radians (Kelvin wake angle)
 
 // State
 let width, height, cols, rows;
@@ -48,20 +47,20 @@ class Ripple {
 
   get strength() {
     const base = 1 - (this.age / this.lifespan);
-    if (this.type === 'wake') return base * 0.12; // Very subtle
+    if (this.type === 'wake') return base * 0.18; // Subtle but visible V-wake
     if (this.type === 'micro') return base * 0.25;
     return base;
   }
 
   get speed() {
-    // Wake ripples spread slower and smaller
-    return this.type === 'wake' ? RIPPLE_SPEED * 0.5 : RIPPLE_SPEED;
+    // Wake ripples spread outward from V pattern
+    return this.type === 'wake' ? RIPPLE_SPEED * 0.6 : RIPPLE_SPEED;
   }
 
   getInfluence(px, py) {
     const dist = Math.sqrt((px - this.x) ** 2 + (py - this.y) ** 2);
     const radius = this.age * this.speed;
-    const ringWidth = this.type === 'wake' ? 60 : (120 + this.age * 50);
+    const ringWidth = this.type === 'wake' ? 50 : (120 + this.age * 50);
     
     const ringDist = Math.abs(dist - radius);
     if (ringDist > ringWidth) return 0;
@@ -90,22 +89,22 @@ function resize() {
 function addRipple(x, y, type = 'normal') {
   ripples.push(new Ripple(x, y, type));
   
-  // Enforce separate limits for each ripple type
-  // This prevents wake ripples from pushing out click ripples
-  const counts = { normal: 0, wake: 0, micro: 0 };
-  const limits = { normal: MAX_CLICK_RIPPLES, wake: MAX_WAKE_RIPPLES, micro: MAX_MICRO_RIPPLES };
-  
-  // Count ripples by type
-  for (const r of ripples) {
-    counts[r.type]++;
-  }
-  
-  // If over limit for this type, remove oldest of same type
-  if (counts[type] > limits[type]) {
-    const idx = ripples.findIndex(r => r.type === type);
-    if (idx !== -1) {
-      ripples.splice(idx, 1);
+  // Unified pool - when over limit, remove the ripple closest to death
+  // This is natural: dying ripples fade out, healthy ones persist
+  if (ripples.length > MAX_RIPPLES) {
+    let lowestLife = Infinity;
+    let lowestIdx = 0;
+    
+    for (let i = 0; i < ripples.length; i++) {
+      const r = ripples[i];
+      const remainingLife = 1 - (r.age / r.lifespan);
+      if (remainingLife < lowestLife) {
+        lowestLife = remainingLife;
+        lowestIdx = i;
+      }
     }
+    
+    ripples.splice(lowestIdx, 1);
   }
 }
 
@@ -115,21 +114,41 @@ function render() {
   // Slow breathing phase
   breathPhase += 0.006;
   
-  // === CURSOR WAKE EFFECT ===
-  // When cursor moves, accumulate distance and spawn tiny wake ripples
+  // === V-WAKE EFFECT (Kelvin Wake) ===
+  // Like a boat, cursor creates diagonal waves spreading outward at angles
   if (mouse.x > 0 && mouse.prevX > 0) {
     const dx = mouse.x - mouse.prevX;
     const dy = mouse.y - mouse.prevY;
     const dist = Math.sqrt(dx * dx + dy * dy);
+    const speed = dist; // cursor speed this frame
+    
     wakeDistance += dist;
     
-    // Spawn wake ripple every ~40 pixels of movement
-    if (wakeDistance > 40) {
+    // Spawn wake ripples every ~30 pixels of movement
+    // Faster movement = spawn more frequently for denser wake
+    const spawnThreshold = Math.max(20, 35 - speed * 0.5);
+    
+    if (wakeDistance > spawnThreshold && dist > 2) {
       wakeDistance = 0;
-      // Spawn slightly behind cursor to create trailing wake
-      const behindX = mouse.x - dx * 0.5;
-      const behindY = mouse.y - dy * 0.5;
-      addRipple(behindX, behindY, 'wake');
+      
+      // Calculate direction angle of movement
+      const moveAngle = Math.atan2(dy, dx);
+      
+      // Spawn TWO ripples at angles to create V pattern
+      // Left wake arm
+      const leftAngle = moveAngle + Math.PI - WAKE_ANGLE;
+      const leftDist = 15 + speed * 0.5;
+      const leftX = mouse.x + Math.cos(leftAngle) * leftDist;
+      const leftY = mouse.y + Math.sin(leftAngle) * leftDist;
+      
+      // Right wake arm  
+      const rightAngle = moveAngle + Math.PI + WAKE_ANGLE;
+      const rightDist = 15 + speed * 0.5;
+      const rightX = mouse.x + Math.cos(rightAngle) * rightDist;
+      const rightY = mouse.y + Math.sin(rightAngle) * rightDist;
+      
+      addRipple(leftX, leftY, 'wake');
+      addRipple(rightX, rightY, 'wake');
     }
   }
   mouse.prevX = mouse.x;
