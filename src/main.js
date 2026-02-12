@@ -4,7 +4,7 @@ const ctx = canvas.getContext('2d');
 // Config
 const CELL_SIZE = 12;
 const CHARS = ' .·:∴∷⁖⁘#@';
-const MAX_RIPPLES = 70;
+const MAX_RIPPLES = 50;
 const RIPPLE_SPEED = 280;
 const RIPPLE_LIFESPAN = 6;
 const WAKE_ANGLE = 0.33; // ~19 degrees (Kelvin wake angle)
@@ -36,7 +36,7 @@ class Ripple {
   }
 
   get lifespan() {
-    if (this.type === 'wake') return 1.2; // Die fast - stay as V shape
+    if (this.type === 'wake') return RIPPLE_LIFESPAN * 0.5;
     return RIPPLE_LIFESPAN;
   }
 
@@ -46,20 +46,20 @@ class Ripple {
 
   get strength() {
     const base = 1 - (this.age / this.lifespan);
-    if (this.type === 'wake') return base * 0.14; // Slightly lower - more ripples now
+    if (this.type === 'wake') return base * 0.15;
     if (this.type === 'micro') return base * 0.25;
     return base;
   }
 
   get speed() {
-    if (this.type === 'wake') return RIPPLE_SPEED * 0.35; // Expand slow - stay tight
+    if (this.type === 'wake') return RIPPLE_SPEED * 0.6;
     return RIPPLE_SPEED;
   }
 
   getInfluence(px, py) {
     const dist = Math.sqrt((px - this.x) ** 2 + (py - this.y) ** 2);
     const radius = this.age * this.speed;
-    const ringWidth = this.type === 'wake' ? 35 : (120 + this.age * 50); // Narrow wake rings
+    const ringWidth = this.type === 'wake' ? 60 : (120 + this.age * 50);
     
     const ringDist = Math.abs(dist - radius);
     if (ringDist > ringWidth) return 0;
@@ -106,7 +106,7 @@ function render() {
   time += 0.016;
   breathPhase += 0.006;
   
-  // === V-WAKE (Kelvin Wake) - multiple ripples along V arms ===
+  // === V-WAKE (Kelvin Wake) - simple circular ripples at V positions ===
   if (mouse.x > 0 && mouse.prevX > 0) {
     const dx = mouse.x - mouse.prevX;
     const dy = mouse.y - mouse.prevY;
@@ -114,32 +114,26 @@ function render() {
     
     wakeDistance += dist;
     
-    // Spawn wake ripples every ~35 pixels
-    if (wakeDistance > 35 && dist > 2) {
+    // Spawn wake ripples every ~40 pixels
+    if (wakeDistance > 40 && dist > 2) {
       wakeDistance = 0;
       
       // Direction cursor is moving
       const moveAngle = Math.atan2(dy, dx);
       
-      // Spawn multiple ripples along each V arm to create parallel lines
+      // Spawn ripples BEHIND cursor at V angles
+      // Left arm - behind and to the left
       const leftAngle = moveAngle + Math.PI - WAKE_ANGLE;
-      const rightAngle = moveAngle + Math.PI + WAKE_ANGLE;
+      const leftX = mouse.x + Math.cos(leftAngle) * 20;
+      const leftY = mouse.y + Math.sin(leftAngle) * 20;
       
-      // 3 ripples per arm at increasing distances
-      for (let i = 0; i < 3; i++) {
-        const armDist = 15 + i * 18;
-        
-        addRipple(
-          mouse.x + Math.cos(leftAngle) * armDist,
-          mouse.y + Math.sin(leftAngle) * armDist,
-          'wake'
-        );
-        addRipple(
-          mouse.x + Math.cos(rightAngle) * armDist,
-          mouse.y + Math.sin(rightAngle) * armDist,
-          'wake'
-        );
-      }
+      // Right arm - behind and to the right
+      const rightAngle = moveAngle + Math.PI + WAKE_ANGLE;
+      const rightX = mouse.x + Math.cos(rightAngle) * 20;
+      const rightY = mouse.y + Math.sin(rightAngle) * 20;
+      
+      addRipple(leftX, leftY, 'wake');
+      addRipple(rightX, rightY, 'wake');
     }
   }
   mouse.prevX = mouse.x;
