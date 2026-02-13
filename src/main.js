@@ -156,7 +156,7 @@ function render() {
   mouse.prevY = mouse.y;
   
   // === RAINDROPS ===
-  if (time - lastRaindrop > 1.5 + Math.random() * 2.5) {
+  if (time - lastRaindrop > 0.8 + Math.random() * 1.5) {
     lastRaindrop = time;
     raindrops.push(new Raindrop(
       Math.random() * width,
