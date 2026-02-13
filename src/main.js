@@ -2,9 +2,9 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
 // Config
-const CELL_SIZE = 12;
+const CELL_SIZE = 14;
 const CHARS = ' .·:∴∷⁖⁘#@';
-const MAX_RIPPLES = 50;
+const MAX_RIPPLES = 30;
 const RIPPLE_SPEED = 280;
 const RIPPLE_LIFESPAN = 6;
 const WAKE_ANGLE = 0.33; // ~19 degrees (Kelvin wake angle)
@@ -20,7 +20,20 @@ let wakeDistance = 0;
 
 // Ambient life
 let breathPhase = 0;
-let lastMicroRipple = 0;
+let lastRaindrop = 0;
+let raindrops = [];
+
+// Raindrop - falls from above, spawns micro ripple on impact
+class Raindrop {
+  constructor(x, targetY) {
+    this.x = x;
+    this.y = -20;
+    this.targetY = targetY;
+    this.speed = 400 + Math.random() * 200;
+  }
+  get landed() { return this.y >= this.targetY; }
+  update(dt) { this.y += this.speed * dt; }
+}
 
 // Ripple class - used for ALL ripples (clicks, wake, ambient)
 class Ripple {
@@ -57,18 +70,20 @@ class Ripple {
   }
 
   getInfluence(px, py) {
-    const dist = Math.sqrt((px - this.x) ** 2 + (py - this.y) ** 2);
+    const ddx = px - this.x;
+    const ddy = py - this.y;
     const radius = this.age * this.speed;
     const ringWidth = this.type === 'wake' ? 60 : (120 + this.age * 50);
+    const bound = radius + ringWidth;
+    // Bounding box reject — avoids expensive sqrt for distant cells
+    if (ddx > bound || ddx < -bound || ddy > bound || ddy < -bound) return 0;
     
+    const dist = Math.sqrt(ddx * ddx + ddy * ddy);
     const ringDist = Math.abs(dist - radius);
     if (ringDist > ringWidth) return 0;
     
-    const freq1 = Math.sin((dist - radius) * 0.1);
-    const freq2 = Math.sin((dist - radius) * 0.2) * 0.5;
-    const freq3 = Math.sin((dist - radius) * 0.05) * 0.3;
-    const wave = freq1 + freq2 + freq3;
-    
+    const delta = dist - radius;
+    const wave = Math.sin(delta * 0.12) + Math.sin(delta * 0.2) * 0.45;
     const falloff = 1 - (ringDist / ringWidth);
     
     return wave * falloff * this.strength;
@@ -139,10 +154,21 @@ function render() {
   mouse.prevX = mouse.x;
   mouse.prevY = mouse.y;
   
-  // Occasional micro-ripples
-  if (time - lastMicroRipple > 1.5 + Math.random() * 4) {
-    lastMicroRipple = time;
-    addRipple(Math.random() * width, Math.random() * height, 'micro');
+  // === RAINDROPS ===
+  if (time - lastRaindrop > 2 + Math.random() * 3) {
+    lastRaindrop = time;
+    raindrops.push(new Raindrop(
+      Math.random() * width,
+      Math.random() * height * 0.9 + height * 0.05
+    ));
+  }
+  
+  for (let i = raindrops.length - 1; i >= 0; i--) {
+    raindrops[i].update(0.016);
+    if (raindrops[i].landed) {
+      addRipple(raindrops[i].x, raindrops[i].targetY, 'micro');
+      raindrops.splice(i, 1);
+    }
   }
   
   // Clean up dead ripples
@@ -204,41 +230,38 @@ function render() {
       const charIdx = Math.floor(charValue * (CHARS.length - 1));
       const char = CHARS[Math.min(charIdx, CHARS.length - 1)];
       
-      // Color
-      const isInterference = rippleCount > 1;
-      const interferenceStrength = Math.abs(rippleSum);
+      // Color — use direct RGB to avoid slow hsla() parsing
+      let r, g, b;
+      const t = intensity;
       
-      let hue, sat, light;
-      
-      if (isInterference && interferenceStrength > 0.3) {
+      if (rippleCount > 1 && Math.abs(rippleSum) > 0.3) {
         if (wave > 0.2) {
-          hue = 200;
-          sat = 20 + (1 - intensity) * 40;
-          light = 70 + intensity * 30;
+          r = 140 + t * 115 | 0; g = 175 + t * 80 | 0; b = 210 + t * 45 | 0;
         } else if (wave < -0.2) {
-          hue = 220;
-          sat = 70;
-          light = 30 + intensity * 30;
+          r = 20 + t * 40 | 0; g = 40 + t * 60 | 0; b = 100 + t * 80 | 0;
         } else {
-          hue = 210;
-          sat = 40 + intensity * 20;
-          light = 50 + intensity * 40;
+          r = 70 + t * 80 | 0; g = 110 + t * 70 | 0; b = 160 + t * 60 | 0;
         }
       } else {
-        hue = 215;
-        sat = 30 + (1 - intensity) * 50;
-        light = 45 + intensity * 55;
+        r = 50 + t * 100 | 0; g = 85 + t * 100 | 0; b = 145 + t * 80 | 0;
       }
       
       if (gazeFocus > 0) {
-        light = Math.min(100, light + gazeFocus * 15);
-        sat = Math.max(0, sat - gazeFocus * 10);
+        const g2 = gazeFocus * 40;
+        r = Math.min(255, r + g2) | 0; g = Math.min(255, g + g2) | 0; b = Math.min(255, b + g2) | 0;
       }
       
-      const alpha = 0.4 + intensity * 0.6;
-      ctx.fillStyle = `hsla(${hue}, ${sat}%, ${light}%, ${alpha})`;
+      const alpha = (0.4 + intensity * 0.6);
+      ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
       ctx.fillText(char, x, y);
     }
+  }
+
+  // Falling raindrops
+  ctx.fillStyle = 'rgba(200, 230, 255, 0.9)';
+  for (const drop of raindrops) {
+    ctx.fillText('·', drop.x, drop.y);
+    ctx.fillText(':', drop.x, drop.y - 8);
   }
 
   requestAnimationFrame(render);
