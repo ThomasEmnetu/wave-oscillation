@@ -59,7 +59,7 @@ class Ripple {
 
   get strength() {
     const base = 1 - (this.age / this.lifespan);
-    if (this.type === 'wake') return base * 0.15;
+    if (this.type === 'wake') return base * 0.08;
     if (this.type === 'micro') return base * 0.25;
     return base;
   }
