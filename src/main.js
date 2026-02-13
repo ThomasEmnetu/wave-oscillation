@@ -27,9 +27,10 @@ let raindrops = [];
 class Raindrop {
   constructor(x, targetY) {
     this.x = x;
-    this.y = -20;
+    this.y = -40;
     this.targetY = targetY;
-    this.speed = 400 + Math.random() * 200;
+    this.speed = 220 + Math.random() * 120;
+    this.length = 18 + Math.random() * 14;
   }
   get landed() { return this.y >= this.targetY; }
   update(dt) { this.y += this.speed * dt; }
@@ -155,7 +156,7 @@ function render() {
   mouse.prevY = mouse.y;
   
   // === RAINDROPS ===
-  if (time - lastRaindrop > 2 + Math.random() * 3) {
+  if (time - lastRaindrop > 1.5 + Math.random() * 2.5) {
     lastRaindrop = time;
     raindrops.push(new Raindrop(
       Math.random() * width,
@@ -257,11 +258,22 @@ function render() {
     }
   }
 
-  // Falling raindrops
-  ctx.fillStyle = 'rgba(200, 230, 255, 0.9)';
+  // Falling raindrops — visible streaks
   for (const drop of raindrops) {
-    ctx.fillText('·', drop.x, drop.y);
-    ctx.fillText(':', drop.x, drop.y - 8);
+    const gradient = ctx.createLinearGradient(drop.x, drop.y - drop.length, drop.x, drop.y);
+    gradient.addColorStop(0, 'rgba(180, 210, 255, 0)');
+    gradient.addColorStop(0.4, 'rgba(200, 225, 255, 0.5)');
+    gradient.addColorStop(1, 'rgba(230, 245, 255, 0.9)');
+    ctx.strokeStyle = gradient;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(drop.x, drop.y - drop.length);
+    ctx.lineTo(drop.x, drop.y);
+    ctx.stroke();
+    
+    // Bright tip
+    ctx.fillStyle = 'rgba(240, 250, 255, 0.95)';
+    ctx.fillRect(drop.x - 0.5, drop.y - 1, 1.5, 2);
   }
 
   requestAnimationFrame(render);
