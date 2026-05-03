@@ -244,10 +244,10 @@ function render() {
   ripples = ripples.filter(r => r.alive)
 
   // === CLEAR ===
-  ctx.fillStyle = '#1a3a6e'
+  ctx.fillStyle = '#2858a8'
   ctx.fillRect(0, 0, width, height)
 
-  // === BACKGROUND WAVE FIELD (subtle ASCII) ===
+  // === WAVE FIELD (ASCII grid with full ripple response) ===
   ctx.font = `${CELL_SIZE}px monospace`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -257,6 +257,9 @@ function render() {
       const x = col * CELL_SIZE + CELL_SIZE / 2
       const y = row * CELL_SIZE + CELL_SIZE / 2
 
+      const nx = col / cols
+      const ny = row / rows
+
       const wave = getWaveAt(x, y)
 
       const intensity = Math.min(1, Math.max(0, (wave + 1) / 2))
@@ -264,13 +267,43 @@ function render() {
       const charIdx = Math.floor(charValue * (CHARS.length - 1))
       const char = CHARS[Math.min(charIdx, CHARS.length - 1)]
 
-      // Subtle ocean blue palette
+      // Color — vivid response to wave state
+      let r, g, b
       const t = intensity
-      const r = 20 + t * 50 | 0
-      const g = 45 + t * 60 | 0
-      const b = 90 + t * 70 | 0
-      const alpha = 0.2 + intensity * 0.25
 
+      // Count active ripple influences for interference coloring
+      let rippleSum = 0
+      let rippleCount = 0
+      for (const ripple of ripples) {
+        const influence = ripple.getInfluence(x, y)
+        if (influence !== 0) {
+          rippleSum += influence
+          rippleCount++
+        }
+      }
+
+      if (rippleCount > 1 && Math.abs(rippleSum) > 0.3) {
+        if (wave > 0.2) {
+          r = 140 + t * 115 | 0; g = 175 + t * 80 | 0; b = 210 + t * 45 | 0
+        } else if (wave < -0.2) {
+          r = 20 + t * 40 | 0; g = 40 + t * 60 | 0; b = 100 + t * 80 | 0
+        } else {
+          r = 70 + t * 80 | 0; g = 110 + t * 70 | 0; b = 160 + t * 60 | 0
+        }
+      } else {
+        r = 50 + t * 100 | 0; g = 85 + t * 100 | 0; b = 145 + t * 80 | 0
+      }
+
+      // Gaze focus brightening
+      const cursorDist = Math.sqrt((x - mouse.x) ** 2 + (y - mouse.y) ** 2)
+      const gazeRadius = 120
+      if (cursorDist < gazeRadius) {
+        const gazeFocus = (1 - cursorDist / gazeRadius) ** 2
+        const g2 = gazeFocus * 40
+        r = Math.min(255, r + g2) | 0; g = Math.min(255, g + g2) | 0; b = Math.min(255, b + g2) | 0
+      }
+
+      const alpha = 0.4 + intensity * 0.6
       ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`
       ctx.fillText(char, x, y)
     }
